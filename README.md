@@ -47,7 +47,10 @@ A simple Python application to calculate the bearing (angle) between two points 
    ```bash
    cd sot_gps
    ```
-3. Run the starter.bat
+3. Run the installer.bat (only on the first launch)
+
+   
+4. Run the starter.bat
    
 ---
 
