@@ -187,12 +187,31 @@ def smooth_path(path, grid, grid_resolution, distance_threshold=5.0):
 
 
 # Find a path from start to goal using A* with multithreading
-def find_path(start, goal, safe_areas, waypoints, width, height, grid_resolution=500):
-    # Create a new grid for this specific path calculation
-    grid = create_high_resolution_grid(safe_areas, [start, goal], width, height, grid_resolution)
-
+def find_path(start, goal, grid, width, height, grid_resolution=500):
+    """
+    Find a path from start to goal using the precomputed grid.
+    
+    Args:
+        start (tuple): Start coordinates (x, y).
+        goal (tuple): Goal coordinates (x, y).
+        grid (numpy.ndarray): Precomputed grid.
+        width (int): Width of the map.
+        height (int): Height of the map.
+        grid_resolution (int): Resolution of the grid.
+    
+    Returns:
+        list: List of (x, y) coordinates representing the path.
+    """
+    # Convert start and goal to grid coordinates
     start_grid = (int(start[0] / (width / grid_resolution)), int(start[1] / (height / grid_resolution)))
     goal_grid = (int(goal[0] / (width / grid_resolution)), int(goal[1] / (height / grid_resolution)))
+
+    # Validate grid coordinates
+    if (start_grid[0] < 0 or start_grid[0] >= grid_resolution or
+        start_grid[1] < 0 or start_grid[1] >= grid_resolution or
+        goal_grid[0] < 0 or goal_grid[0] >= grid_resolution or
+        goal_grid[1] < 0 or goal_grid[1] >= grid_resolution):
+        raise ValueError("Start or goal coordinates are out of grid bounds.")
 
     result_queue = Queue()
     stop_event = threading.Event()
@@ -204,7 +223,7 @@ def find_path(start, goal, safe_areas, waypoints, width, height, grid_resolution
     for _ in range(num_threads):
         thread = threading.Thread(
             target=a_star,
-            args=(start_grid, goal_grid, grid, grid_resolution, waypoints, result_queue, stop_event, visited_lock, visited)
+            args=(start_grid, goal_grid, grid, grid_resolution, [], result_queue, stop_event, visited_lock, visited)
         )
         threads.append(thread)
         thread.start()
@@ -224,7 +243,7 @@ def find_path(start, goal, safe_areas, waypoints, width, height, grid_resolution
     return path
 
 # Draw the final map with islands and the path, and overlay waypoint order numbers
-def draw_map(image, safe_areas, path, waypoints, width, height, scale_factor=0.75):
+def draw_map(image, safe_areas, path, waypoints, width, height, scale_factor=0.6):
     color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
     # Draw safe areas
@@ -264,7 +283,21 @@ def draw_map(image, safe_areas, path, waypoints, width, height, scale_factor=0.7
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+# Function to save the grid to a file
+def save_grid(grid,filename="precomputed_grid.npy"):
+    # Save the grid to the file
+    np.save(filename, grid)
+    print(f"Grid saved to {filename}")
 
+def load_grid(filename="precomputed_grid.npy"):
+    # Check if the file exists
+    if os.path.exists(filename):
+        grid = np.load(filename)
+        print(f"Grid loaded from {filename}")
+        return grid
+    else:
+        print(f"No precomputed grid found at {filename}")
+        return None
 
 # Save the path to a file
 def save_path_to_file(path, filename="path_output.txt"):
@@ -273,7 +306,7 @@ def save_path_to_file(path, filename="path_output.txt"):
             f.write(f"{point[0]}, {point[1]}\n")
     print(f"Path saved to {filename}")
 
-# Function to remove duplicate points within a tolerance of ±5%
+# Function to remove duplicate points within a tolerance of ï¿½5%
 def remove_duplicates(path, tolerance=0.05):
     if not path:
         return path
@@ -312,11 +345,24 @@ if __name__ == "__main__":
     raw_waypoints = input("Waypoints: ").strip().split()
     waypoints = [game_to_coords(wp, width, height) for wp in raw_waypoints]
 
+    final_goal = waypoints[-1]  # Assuming the last waypoint is the goal
+    waypoints.append(final_goal)
+
     # Precompute the grid during initialization
-    print("Precomputing grid...")
-    grid_resolution = 500  # High-resolution grid
-    grid = create_high_resolution_grid(safe_areas, waypoints, width, height, grid_resolution)
-    print("Grid precomputed and ready for pathfinding.")
+    grid_resolution = 5000  # High-resolution grid
+    grid_filename = "precomputed_grid.npy"
+
+    # Check if a precomputed grid exists
+    grid = load_grid(grid_filename)
+
+    # If no precomputed grid exists, compute it and save it
+    if grid is None:
+        print("Precomputing grid...")
+        grid = create_high_resolution_grid(safe_areas, waypoints, width, height, grid_resolution)
+        save_grid(grid, grid_filename)
+        print("Grid precomputed and saved.")
+    else:
+        print("Using precomputed grid.")
 
     # Find the full path
     full_path = []
@@ -325,8 +371,8 @@ if __name__ == "__main__":
         goal = waypoints[i + 1]
         print(f"{i} - Finding path from {start} to {goal}...")
 
-        # Find path using A* with multithreading
-        path = find_path(start, goal, safe_areas, waypoints, width, height, grid_resolution)
+        # Find path using A* with the precomputed grid
+        path = find_path(start, goal, grid, width, height, grid_resolution)
 
         if not path:
             print(f"No path found from {start} to {goal}.")
@@ -334,7 +380,7 @@ if __name__ == "__main__":
 
         full_path.extend(path)
 
-    # Remove duplicates (within ±5% tolerance)
+    # Remove duplicates (within 5% tolerance)
     full_path = remove_duplicates(full_path, tolerance=0.05)
 
     # Output the path
